@@ -1,28 +1,19 @@
 # -*- coding: utf-8 -*-
-# Kodi Addon for Syfy !!!!!!!!!!!!!!!!!! still need to add subtitles !!!!!
-
-import sys
-import httplib
-
+# Kodi Addon for Syfy 
+import sys,httplib
 import urllib, urllib2, cookielib, datetime, time, re, os, string
 import xbmcplugin, xbmcgui, xbmcaddon, xbmcvfs, xbmc
-import cgi, gzip
-from StringIO import StringIO
-import json
+import zlib,json,HTMLParser
+h = HTMLParser.HTMLParser()
+qp  = urllib.quote_plus
+uqp = urllib.unquote_plus
 
-
-USER_AGENT = 'Mozilla/5.0 (iPad; CPU OS 6_0 like Mac OS X) AppleWebKit/536.26 (KHTML, like Gecko) Version/6.0 Mobile/10A5376e Safari/8536.25'
-GENRE_TV  = "TV"
-UTF8          = 'utf-8'
-MAX_PER_PAGE  = 25
+UTF8     = 'utf-8'
 SYFYBASE = 'http://www.syfy.com%s'
 
 addon         = xbmcaddon.Addon('plugin.video.syfy')
 __addonname__ = addon.getAddonInfo('name')
 __language__  = addon.getLocalizedString
-
-qp  = urllib.quote_plus
-uqp = urllib.unquote_plus
 
 home          = addon.getAddonInfo('path').decode(UTF8)
 icon          = xbmc.translatePath(os.path.join(home, 'icon.png'))
@@ -33,116 +24,210 @@ def log(txt):
     message = '%s: %s' % (__addonname__, txt.encode('ascii', 'ignore'))
     xbmc.log(msg=message, level=xbmc.LOGDEBUG)
 
+USER_AGENT = 'Mozilla/5.0 (iPad; CPU OS 6_0 like Mac OS X) AppleWebKit/536.26 (KHTML, like Gecko) Version/6.0 Mobile/10A5376e Safari/8536.25'
+defaultHeaders = {'User-Agent':USER_AGENT, 'Accept':"text/html", 'Accept-Encoding':'gzip,deflate,sdch', 'Accept-Language':'en-US,en;q=0.8'} 
+
+def getRequest(url, headers = defaultHeaders):
+              log("getRequest URL:"+str(url))
+              req = urllib2.Request(url.encode(UTF8), None, headers)
+              try:
+                 response = urllib2.urlopen(req)
+                 page = response.read()
+                 if response.info().getheader('Content-Encoding') == 'gzip':
+                    log("Content Encoding == gzip")
+                    page = zlib.decompress(page, zlib.MAX_WBITS + 16)
+              except:
+                 page = ""
+              return(page)
+
+def getShows():
+              xbmcplugin.setContent(int(sys.argv[1]), 'tvshows')
+              ilist=[]
+              epiHTML = getRequest('http://www.syfy.com/episodes')
+              posterHTML = getRequest('http://www.syfy.com/shows')
+              posters = re.compile('<div class="grid-image-above">.+?<img  srcset="(.+?)".+?class="title">(.+?)<',re.DOTALL).findall(posterHTML)
+              shows = re.compile('<div class="show id.+?<h3>(.+?)<.+?header">(.+?)<.+?</div',re.DOTALL).findall(epiHTML)
+              for name, vcnt in shows:
+                  vcnt = vcnt.strip()
+                  poster = None
+                  for pimg, pname in posters:
+                     if pname == name:
+                       poster = pimg
+                       break
+
+                  m = re.compile('syfy_show_microsite_show_list_form" />(.+?)<div class="view-footer">',re.DOTALL).search(epiHTML)
+                  x = '<div class="show id'
+                  blob = epiHTML[:m.end(1)] + x
+                  m = re.compile('<div class="show id.+?<h3>'+name+'</h3>(.+?)<div class="show id',re.DOTALL).search(blob, m.start(1), m.end(1)+len(x))
+                  epis = re.compile('episode-info">.+?<span>.+?<.+?href="(.+?)".+?src=.+?</div',re.DOTALL).findall(blob,m.start(1),m.end(1))
+                  url = SYFYBASE % epis[len(epis)-1]
+                  html = getRequest(url)
+                  purl = re.compile('data-src="(.+?)"',re.DOTALL).search(html).group(1)
+                  purl = 'http:'+purl.replace('&amp;','&')
+                  html = getRequest(purl)
+                  purl = re.compile('<link rel="alternate" href="(.+?)"',re.DOTALL).findall(html)
+                  purl = purl[1]+'&format=Script&height=576&width=1024'
+                  html = getRequest(purl)
+                  a = json.loads(html)
+                  studio  = a['provider']
+                  genre   = a['nbcu$advertisingGenre'].replace(' and ',' / ')
+                  mpaa    = a['ratings'][0]['rating']
+                  aired   = datetime.datetime.fromtimestamp(a['pubDate']/1000).strftime('%Y-%m-%d')
+                  year    = int(aired.split('-',1)[0])
+                  url = '%s/cast' % url.split('/video',1)[0]
+                  html = getRequest(url)
+                  try:    plot = re.compile('<div class="field field-name-body.+?<p>(.+?)</p',re.DOTALL).search(html).group(1)
+                  except: 
+                     try:    plot  = re.compile('<meta name="description" content="(.+?)"',re.DOTALL).search(html).group(1)
+                     except: plot = '%ss' % vcnt
+                  cast = re.compile('<article class="tile.+?tile-marqee">(.+?)<.+?</article',re.DOTALL).findall(html)
+                  if len(cast) == 0: cast = re.compile('<article class="tile.+?tile-title">(.+?)<.+?</article',re.DOTALL).findall(html)
+                  plot = h.unescape(plot)
+                  url = name
+                  episodes = int(vcnt.split(' ',1)[0])
+                  mode = 'GE'
+                  u = '%s?url=%s&name=%s&mode=%s' % (sys.argv[0],qp(url), qp(name), mode)
+                  liz=xbmcgui.ListItem(name, '',poster, None)
+                  liz.setInfo( 'Video', { "Title" : name, 
+                                          "TVShowTitle": name,
+                                          "Studio": studio, 
+                                          "Plot": plot, 
+                                          "Genre" : genre, 
+                                          "MPAA" : mpaa, 
+                                          "Aired": aired, 
+                                          "Episode": episodes, 
+                                          "Year" : year, 
+                                          "cast" : cast })
+                  liz.setProperty('fanart_image', addonfanart)
+                  ilist.append((u, liz, True))
+              xbmcplugin.addDirectoryItems(int(sys.argv[1]), ilist, len(ilist))
+              xbmcplugin.endOfDirectory(int(sys.argv[1]))
+
+
+def getEpisodes(sname, showName):
+              xbmcplugin.setContent(int(sys.argv[1]), 'episodes')
+              sname = uqp(sname)
+              ilist=[]
+              html = getRequest('http://www.syfy.com/episodes')
+              m = re.compile('syfy_show_microsite_show_list_form" />(.+?)<div class="view-footer">',re.DOTALL).search(html)
+              x = '<div class="show id'
+              blob = html[:m.end(1)] + x
+              m = re.compile('<div class="show id.+?<h3>'+sname+'</h3>(.+?)<div class="show id',re.DOTALL).search(blob, m.start(1), m.end(1)+len(x))
+              epis = re.compile('episode-info">.+?<span>(.+?)<.+?href="(.+?)".+?src="(.+?)".+?</div',re.DOTALL).findall(blob,m.start(1),m.end(1))
+
+              for name, url, img in epis:
+                 mode = 'GV'
+                 url = SYFYBASE % url
+                 html = getRequest(url)
+                 purl = re.compile('data-src="(.+?)"',re.DOTALL).search(html).group(1)
+                 purl = 'http:'+purl.replace('&amp;','&')
+                 html = getRequest(purl)
+                 purl = re.compile('<link rel="alternate" href="(.+?)"',re.DOTALL).findall(html)
+                 purl = purl[1]+'&format=Script&height=576&width=1024'
+                 html = getRequest(purl)
+                 a = json.loads(html)
+                 title   = a['title']
+                 season  = a['pl1$seasonNumber']
+                 episode = a['pl1$episodeNumber']
+                 studio  = a['provider']
+                 genre   = (a['nbcu$advertisingGenre']).replace('and','/')
+                 mpaa    = a['ratings'][0]['rating']
+                 duration = str(int(a['duration']/1000))
+                 fanart  = a['defaultThumbnailUrl']
+                 thumb   = a['defaultThumbnailUrl']
+                 aired   = datetime.datetime.fromtimestamp(a['pubDate']/1000).strftime('%Y-%m-%d')
+                 vdate   = aired
+                 try:    plot = a["description"]
+                 except: plot = a["abstract"]
+                 plot    = h.unescape(plot)
+                 url = purl
+                 u = '%s?url=%s&name=%s&mode=%s' % (sys.argv[0],qp(url), qp(name), mode)
+                 liz=xbmcgui.ListItem(title, '',icon, thumb)
+                 liz.setInfo( 'Video', { "Studio" : studio, 
+                                         "TVShowTitle": showName, 
+                                         "Title": title, 
+                                         "Plot": plot, 
+                                         "Season":season, 
+                                         "Episode":episode, 
+                                         "Genre": genre, 
+                                         "MPAA": mpaa, 
+                                         "Duration": duration, 
+                                         "Aired" : aired, 
+                                         "Date" : vdate })
+                 liz.addStreamInfo('video', { 'codec': 'h264', 
+                                              'width' : 1920, 
+                                              'height' : 1080, 
+                                              'aspect' : 1.78 })
+                 liz.addStreamInfo('audio', { 'codec': 'aac', 'language' : 'en'})
+                 liz.addStreamInfo('subtitle', { 'language' : 'en'})
+                 liz.setProperty('fanart_image', fanart)
+                 liz.setProperty('IsPlayable', 'true')
+                 ilist.append((u, liz, False))
+              xbmcplugin.addDirectoryItems(int(sys.argv[1]), ilist, len(ilist))
+              xbmcplugin.endOfDirectory(int(sys.argv[1]))
+
+               
+gvu1 = 'https://tvesyfy-vh.akamaihd.net/i/prod/video/%s_,25,40,18,12,7,4,2,00.mp4.csmil/master.m3u8?__b__=1000&hdnea=st=%s~exp=%s'
+gvu2 = 'https://tvesyfy-vh.akamaihd.net/i/prod/video/%s_,1696,1296,896,696,496,240,306,.mp4.csmil/master.m3u8?__b__=1000&hdnea=st=%s~exp=%s'
+pfu1 = 'http://link.theplatform.com/s/HNK2IC/media/'
+pfparms = '?player=Syfy.com%20Player&policy=2713542&manifest=m3u&formats=flv,m3u,mpeg4&format=SMIL&embedded=true&tracking=true'
+
+def getVideo(url, show_name):
+               url = uqp(url)
+               url = url.replace(' ','%20')
+               html = getRequest(url)
+               a = json.loads(html)
+               try:
+                    suburl = a["captions"][0]["src"]
+                    url = suburl.split('/caption/',1)[1]
+                    url = url.split('.',1)[0]
+                    td = (datetime.datetime.utcnow()- datetime.datetime(1970,1,1))
+                    unow = int((td.microseconds + (td.seconds + td.days * 24 * 3600) * 10**6) / 10**6)
+                    u   =  gvu1 % (url, str(unow), str(unow+60))
+
+                    req = urllib2.Request(u.encode(UTF8), None, defaultHeaders)
+                    try:
+                       response = urllib2.urlopen(req, timeout=20) # check to see if video file exists
+                    except:
+                       u   =  gvu2 % (url, str(unow), str(unow+60))
+               except:
+                    url = a['mediaPid']
+                    url = pfu1+url+pfparms
+                    html = getRequest(url)
+                    u  = re.compile('<video src="(.+?)"',re.DOTALL).search(html).group(1)
+
+               xbmcplugin.setResolvedUrl(int(sys.argv[1]), True, xbmcgui.ListItem(path = u))
+
+               if (addon.getSetting('sub_enable') == "true"):
+                 profile = addon.getAddonInfo('profile').decode(UTF8)
+                 subfile = xbmc.translatePath(os.path.join(profile, 'SyfySubtitles.srt'))
+                 prodir  = xbmc.translatePath(os.path.join(profile))
+                 if not os.path.isdir(prodir):
+                    os.makedirs(prodir)
+
+                 pg = getRequest(suburl)
+                 if pg != "":
+                   ofile = open(subfile, 'w+')
+                   captions = re.compile('<p begin="(.+?)" end="(.+?)">(.+?)</p>',re.DOTALL).findall(pg)
+                   idx = 1
+                   for cstart, cend, caption in captions:
+                     cstart = cstart.replace('.',',')
+                     cend   = cend.replace('.',',').split('"',1)[0]
+                     caption = caption.replace('<br/>','\n').replace('&gt;','>')
+                     ofile.write( '%s\n%s --> %s\n%s\n\n' % (idx, cstart, cend, caption))
+                     idx += 1
+                   ofile.close()
+                   xbmc.sleep(2000)
+                   xbmc.Player().setSubtitles(subfile)
+
+# MAIN EVENT PROCESSING STARTS HERE
+
 def demunge(munge):
         try:
             munge = urllib.unquote_plus(munge).decode(UTF8)
         except:
             pass
         return munge
-
-def deuni(a):
-    a = a.replace('&amp;#039;',"'")
-    a = a.replace('&amp','&')
-    a = a.replace('&#039;',"'")
-    return a
-
-def getRequest(url):
-              log("getRequest URL:"+str(url))
-              headers = {'User-Agent':USER_AGENT, 'Accept':"text/html", 'Accept-Encoding':'gzip,deflate,sdch', 'Accept-Language':'en-US,en;q=0.8'} 
-              req = urllib2.Request(url.encode(UTF8), None, headers)
-
-              try:
-                 response = urllib2.urlopen(req)
-                 if response.info().getheader('Content-Encoding') == 'gzip':
-                    log("Content Encoding == gzip")
-                    buf = StringIO( response.read())
-                    f = gzip.GzipFile(fileobj=buf)
-                    link1 = f.read()
-                 else:
-                    link1=response.read()
-              except:
-                 link1 = ""
-
-              link1 = str(link1).replace('\n','')
-              return(link1)
-
-
-def getSources(fanart):
-              ilist=[]
-              html = getRequest('http://www.syfy.com/episodes')
-              cats = re.compile('<div class="show id.+?<h3>(.+?)<.+?header">(.+?)<.+?</div').findall(html)
-              for name, vcnt in cats:
-                  url = name
-                  plot = '%ss' % vcnt
-                  mode = 'GC'
-                  u = '%s?url=%s&name=%s&mode=%s' % (sys.argv[0],qp(url), qp(name), mode)
-                  liz=xbmcgui.ListItem(name, '',icon, icon)
-                  liz.setInfo( 'Video', { "Title": name, "Plot": plot })
-                  liz.setProperty('fanart_image', addonfanart)
-                  ilist.append((u, liz, True))
-              xbmcplugin.addDirectoryItems(int(sys.argv[1]), ilist, len(ilist))
-
-
-def getCats(sname, catname):
-              sname = uqp(sname)
-              ilist=[]
-              html = getRequest('http://www.syfy.com/episodes')
-              blob = re.compile('syfy_show_microsite_show_list_form" />(.+?)<div class="view-footer">').search(html).group(1)
-              blob += '<div class="show id'
-              blob = re.compile('<div class="show id.+?<h3>'+sname+'</h3>(.+?)<div class="show id').search(blob).group(1)
-              cats = re.compile('episode-info">.+?<span>(.+?)<.+?href="(.+?)".+?src="(.+?)".+?</div').findall(blob)
-              for name, url, img in cats:
-                 mode = 'GS'
-                 url = SYFYBASE % url
-                 html = getRequest(url)
-                 purl = re.compile('data-src="(.+?)"').search(html).group(1)
-                 purl = 'http:'+purl.replace('&amp;','&')
-                 html = getRequest(purl)
-                 purl = re.compile('<link rel="alternate" href="(.+?)"').findall(html)
-                 purl = purl[1]+'&format=Script&height=576&width=1024'
-                 html = getRequest(purl)
-                 a = json.loads(html)
-                 try:    plot = a["description"]
-                 except: plot = a["abstract"]
-                 url = purl
-                 u = '%s?url=%s&name=%s&mode=%s' % (sys.argv[0],qp(url), qp(name), mode)
-                 liz=xbmcgui.ListItem(name, '',icon, icon)
-                 liz.setInfo( 'Video', { "Studio" : catname, "Title": name, "Plot": plot })
-                 liz.setProperty('fanart_image', img)
-                 liz.setProperty('IsPlayable', 'true')
-                 ilist.append((u, liz, False))
-              xbmcplugin.addDirectoryItems(int(sys.argv[1]), ilist, len(ilist))
-               
-
-def getShow(url, show_name):
-                 url = uqp(url)
-                 url = url.replace(' ','%20')
-                 html = getRequest(url)
-                 a = json.loads(html)
-                 try:
-                    url = a["captions"][0]["src"]
-                    url = url.split('/caption/',1)[1]
-                    url = url.split('.',1)[0]
-                    td = (datetime.datetime.utcnow()- datetime.datetime(1970,1,1))
-                    unow = int((td.microseconds + (td.seconds + td.days * 24 * 3600) * 10**6) / 10**6)
-
-                    u   = 'https://tvesyfy-vh.akamaihd.net/i/prod/video/%s_,25,40,18,12,7,4,2,00.mp4.csmil/master.m3u8?__b__=1000&hdnea=st=%s~exp=%s' % (url, str(unow), str(unow+60))
-                    html = getRequest(u)
-                    if html == '':
-                       u   = 'https://tvesyfy-vh.akamaihd.net/i/prod/video/%s_,1696,1296,896,696,496,240,306,.mp4.csmil/master.m3u8?__b__=1000&hdnea=st=%s~exp=%s' % (url, str(unow), str(unow+60))
-
-                 except:
-                    url = a['mediaPid']
-                    url = 'http://link.theplatform.com/s/HNK2IC/media/'+url+'?player=Syfy.com%20Player&policy=2713542&manifest=m3u&formats=flv,m3u,mpeg4&format=SMIL&embedded=true&tracking=true'
-                    html = getRequest(url)
-                    u  = re.compile('<video src="(.+?)"').search(html).group(1)
-
-                 xbmcplugin.setResolvedUrl(int(sys.argv[1]), True, xbmcgui.ListItem(path = u))
-
-
-# MAIN EVENT PROCESSING STARTS HERE
-
-xbmcplugin.setContent(int(sys.argv[1]), 'tvshows')
 
 parms = {}
 try:
@@ -156,9 +241,8 @@ p = parms.get
 
 mode = p('mode',None)
 
-if mode==  None:  getSources(p('fanart'))
-elif mode=='GC':  getCats(p('url'), p('name'))
-elif mode=='GS':  getShow(p('url'), p('name'))
+if mode==  None:  getShows()
+elif mode=='GE':  getEpisodes(p('url'), p('name'))
+elif mode=='GV':  getVideo(p('url'), p('name'))
 
-xbmcplugin.endOfDirectory(int(sys.argv[1]))
 
