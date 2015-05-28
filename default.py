@@ -46,9 +46,9 @@ def getShows():
    epiHTML = getRequest('http://www.syfy.com/episodes')
    posterHTML = getRequest('http://www.syfy.com/shows')
    posters = re.compile('<div class="grid-image-above">.+?<img  srcset="(.+?)".+?class="title">(.+?)<',re.DOTALL).findall(posterHTML)
-   shows = re.compile('<div class="show id.+?<h3>(.+?)<.+?header">(.+?)<.+?</div',re.DOTALL).findall(epiHTML)
-   for name, vcnt in shows:
-       vcnt = vcnt.strip()
+   shows = re.compile('<div class="show id.+?<h3>(.+?)<.+?</div',re.DOTALL).findall(epiHTML)
+   for name in shows:
+       print "name = "+str(name)
        poster = None
        for pimg, pname in posters:
           if pname == name:
@@ -57,6 +57,7 @@ def getShows():
 
        m  = re.compile('<div class="show id.+?<h3>'+name+'</h3>(.+?)</a></div>  </div>  </div>\n    </div>',re.DOTALL).search(epiHTML)
        epis = re.compile('href="(.+?)"',re.DOTALL).findall(epiHTML,m.start(1),m.end(1))
+       vcnt = len(epis)
        url  = SYFYBASE % epis[len(epis)-1]
        html = getRequest(url)
        purl = re.compile('data-src="(.+?)"',re.DOTALL).search(html).group(1)
@@ -75,14 +76,14 @@ def getShows():
        infoList['Title']       = name
        infoList['Studio']      = a['provider']
        infoList['Genre']       = (a['nbcu$advertisingGenre']).replace('and','/')
-       infoList['Episode']     = int(vcnt.split(' ',1)[0])
+       infoList['Episode']     = vcnt
        infoList['Year']        = int(infoList['Aired'].split('-',1)[0])
        url = '%s/cast' % url.split('/video',1)[0]
        html = getRequest(url)
        try:    infoList['Plot'] = re.compile('<div class="field field-name-body.+?<p>(.+?)</p',re.DOTALL).search(html).group(1)
        except: 
           try:    infoList['Plot'] = re.compile('<meta name="description" content="(.+?)"',re.DOTALL).search(html).group(1)
-          except: infoList['Plot'] = '%ss' % vcnt
+          except: infoList['Plot'] = '%s Episodes' % str(vcnt)
        infoList['cast'] = re.compile('<article class="tile.+?tile-marqee">(.+?)<.+?</article',re.DOTALL).findall(html)
        if len(infoList['cast']) == 0: 
           infoList['cast'] = re.compile('<article class="tile.+?tile-title">(.+?)<.+?</article',re.DOTALL).findall(html)
