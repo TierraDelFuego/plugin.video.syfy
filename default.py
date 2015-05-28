@@ -42,6 +42,10 @@ def getRequest(url, headers = defaultHeaders):
 
 def getShows():
    xbmcplugin.setContent(int(sys.argv[1]), 'tvshows')
+   xbmcplugin.addSortMethod(int(sys.argv[1]),xbmcplugin.SORT_METHOD_UNSORTED)
+   xbmcplugin.addSortMethod(int(sys.argv[1]),xbmcplugin.SORT_METHOD_TITLE)
+   xbmcplugin.addSortMethod(int(sys.argv[1]),xbmcplugin.SORT_METHOD_EPISODE)
+
    ilist=[]
    epiHTML = getRequest('http://www.syfy.com/episodes')
    posterHTML = getRequest('http://www.syfy.com/shows')
@@ -95,11 +99,18 @@ def getShows():
        liz.setProperty('fanart_image', addonfanart)
        ilist.append((u, liz, True))
    xbmcplugin.addDirectoryItems(int(sys.argv[1]), ilist, len(ilist))
+   if addon.getSetting('enable_views') == 'true':
+      xbmc.executebuiltin("Container.SetViewMode(%s)" % addon.getSetting('default_view'))
    xbmcplugin.endOfDirectory(int(sys.argv[1]))
 
 
 def getEpisodes(sname, showName):
    xbmcplugin.setContent(int(sys.argv[1]), 'episodes')
+   xbmcplugin.addSortMethod(int(sys.argv[1]),xbmcplugin.SORT_METHOD_UNSORTED)
+   xbmcplugin.addSortMethod(int(sys.argv[1]),xbmcplugin.SORT_METHOD_TITLE)
+   xbmcplugin.addSortMethod(int(sys.argv[1]),xbmcplugin.SORT_METHOD_VIDEO_YEAR)
+   xbmcplugin.addSortMethod(int(sys.argv[1]),xbmcplugin.SORT_METHOD_EPISODE)
+
    sname = uqp(sname)
    ilist=[]
    html = getRequest('http://www.syfy.com/episodes')
@@ -153,6 +164,8 @@ def getEpisodes(sname, showName):
       liz.setProperty('IsPlayable', 'true')
       ilist.append((u, liz, False))
    xbmcplugin.addDirectoryItems(int(sys.argv[1]), ilist, len(ilist))
+   if addon.getSetting('enable_views') == 'true':
+      xbmc.executebuiltin("Container.SetViewMode(%s)" % addon.getSetting('episode_view'))
    xbmcplugin.endOfDirectory(int(sys.argv[1]))
 
 
