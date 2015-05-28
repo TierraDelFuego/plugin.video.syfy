@@ -48,7 +48,6 @@ def getShows():
    posters = re.compile('<div class="grid-image-above">.+?<img  srcset="(.+?)".+?class="title">(.+?)<',re.DOTALL).findall(posterHTML)
    shows = re.compile('<div class="show id.+?<h3>(.+?)<.+?</div',re.DOTALL).findall(epiHTML)
    for name in shows:
-       print "name = "+str(name)
        poster = None
        for pimg, pname in posters:
           if pname == name:
