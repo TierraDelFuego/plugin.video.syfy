@@ -21,6 +21,6 @@
     <forum>http://forum.kodi.tv/showthread.php?tid=224741</forum>
     <website>www.syfy.com</website>
     <email></email>
-    <source>https://github.com/learningit/repository.t1m.v2.addons/tree/master/src/plugin.video.t1m.syfy</source>
+    <source>https://github.com/learningit/plugin.video.syfy</source>
   </extension>
 </addon>
